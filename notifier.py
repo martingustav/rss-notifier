@@ -1,4 +1,6 @@
 import json
+import tomllib
+import sys
 import feedparser
 
 def load_state():
@@ -6,38 +8,60 @@ def load_state():
         with open('state.json', 'r') as f:
             return json.load(f)
     except FileNotFoundError:
-        print("Error opening state file: file not found.")
+        # Normal on first run; start with empty state
         return dict()
+    except json.JSONDecodeError:
+        # Abnormal; fail loudly rather than silently resetting
+        print("state.json is corrupt or empty. Delete it to start fresh.")
+        sys.exit(1)
+
+def load_config():
+    try:
+        with open('config.toml', 'rb') as f:
+            return tomllib.load(f)
+    except FileNotFoundError:
+        print("Error opening config file: file not found.")
+        sys.exit(1)
 
 def save_state(state):
     with open('state.json', 'w') as f:
         json.dump(state, f, indent=2)
         f.write("\n")
 
-def get_current_ids(feed_url):
+def fetch_feed(feed_url):
     feed = feedparser.parse(feed_url)
+    channel_name = feed.feed.title
     entries_by_id = dict()
     for entry in feed.entries:
         video_id = entry["yt_videoid"]
-        title = entry["title"]
+        video_title = entry["title"]
         link = entry["link"]
-        entries_by_id[video_id] = {"title": title, "link": link}
-    return entries_by_id
-
-channel_id = "UCwHwDuNd9lCdA7chyyquDXw"
-feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+        entries_by_id[video_id] = {"title": video_title, "link": link}
+    return channel_name, entries_by_id
 
 state = load_state()
-current_ids = get_current_ids(feed_url)
-new_ids = set()
+config = load_config()
+all_new = dict()
 
-if channel_id in state:
-    new_ids = set(current_ids.keys()).difference(set(state[channel_id]))
+for feed_config in config["feeds"]:
+    feed_url = feed_config["url"]
+    channel_name, current_video_ids = fetch_feed(feed_url)
+    label = feed_config.get("label") or channel_name
+    new_video_ids = set()
 
-state[channel_id] = list(current_ids)
+    if feed_url in state:
+        new_video_ids = set(current_video_ids.keys()).difference(set(state[feed_url]))
+
+    if new_video_ids:
+        channel_new = dict()
+        for video_id in new_video_ids:
+            channel_new[video_id] = current_video_ids[video_id]
+        all_new[feed_url] = {"label": label, "videos": channel_new}
+
+    state[feed_url] = list(current_video_ids)
+
 save_state(state)
 
-for video_id in new_ids:
-    title = current_ids[video_id].get("title")
-    link = current_ids[video_id].get("link")
-    print(video_id, title, link)
+for feed_url, feed_data in all_new.items():
+    for video_id, video in feed_data["videos"].items():
+        print(feed_data["label"], video["title"], video["link"])
