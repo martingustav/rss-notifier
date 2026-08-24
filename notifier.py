@@ -2,6 +2,8 @@ import json
 import tomllib
 import sys
 import feedparser
+import smtplib
+from email.message import EmailMessage
 
 def load_state():
     try:
@@ -23,6 +25,14 @@ def load_config():
         print("Error opening config file: file not found.")
         sys.exit(1)
 
+def load_secrets():
+    try:
+        with open('secrets.toml', 'rb') as f:
+            return tomllib.load(f)
+    except FileNotFoundError:
+        print("Error opening secrets file: file not found.")
+        sys.exit(1)
+
 def save_state(state):
     with open('state.json', 'w') as f:
         json.dump(state, f, indent=2)
@@ -39,29 +49,65 @@ def fetch_feed(feed_url):
         entries_by_id[video_id] = {"title": video_title, "link": link}
     return channel_name, entries_by_id
 
-state = load_state()
-config = load_config()
-all_new = dict()
+def send_email(subject, body, config, password):
+    host = config["email"]["smtp_host"]
+    port = config["email"]["smtp_port"]
+    username = config["email"]["smtp_username"]
+    from_address = config["email"]["from_address"]
+    to_address = config["email"]["to_address"]
 
-for feed_config in config["feeds"]:
-    feed_url = feed_config["url"]
-    channel_name, current_video_ids = fetch_feed(feed_url)
-    label = feed_config.get("label") or channel_name
-    new_video_ids = set()
+    msg = EmailMessage()
+    msg.set_content(body)
+    msg['Subject'] = subject
+    msg['From'] = from_address
+    msg['To'] = to_address
 
-    if feed_url in state:
-        new_video_ids = set(current_video_ids.keys()).difference(set(state[feed_url]))
+    with smtplib.SMTP_SSL(host, port) as s:
+        s.login(username, password)
+        s.send_message(msg)
 
-    if new_video_ids:
-        channel_new = dict()
-        for video_id in new_video_ids:
-            channel_new[video_id] = current_video_ids[video_id]
-        all_new[feed_url] = {"label": label, "videos": channel_new}
+if __name__ == "__main__":
+    state = load_state()
+    config = load_config()
+    password = load_secrets()["smtp_password"]
+    all_new = dict()
 
-    state[feed_url] = list(current_video_ids)
+    # Get new feed entries
+    for feed_config in config["feeds"]:
+        feed_url = feed_config["url"]
+        channel_name, current_video_ids = fetch_feed(feed_url)
+        label = feed_config.get("label") or channel_name
 
-save_state(state)
+        new_video_ids = set()
+        if feed_url in state:
+            new_video_ids = set(current_video_ids.keys()).difference(set(state[feed_url]))
 
-for feed_url, feed_data in all_new.items():
-    for video_id, video in feed_data["videos"].items():
-        print(feed_data["label"], video["title"], video["link"])
+        if new_video_ids:
+            channel_new = dict()
+            for video_id in new_video_ids:
+                channel_new[video_id] = current_video_ids[video_id]
+            all_new[feed_url] = {"label": label, "videos": channel_new}
+
+        state[feed_url] = list(current_video_ids)
+
+    save_state(state)
+
+    if all_new:
+        lines = []
+        new_count = 0
+        for feed_url, feed_data in all_new.items():
+            lines.append(feed_data["label"])
+            for video_id, video in feed_data["videos"].items():
+                lines.append(f"  {video['title']}")
+                lines.append(f"  {video['link']}")
+                lines.append("")
+                new_count += 1
+        body = "\n".join(lines)
+        subject = ""
+
+        if new_count > 1:
+            subject = f"{new_count} new feed entries"
+        else:
+            subject = f"{new_count} new feed entry"
+
+        send_email(subject, body, config, password)
