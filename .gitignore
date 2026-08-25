@@ -178,3 +178,4 @@ pyrightconfig.json
 state.json
 config.toml
 secrets.toml
+cron.log
