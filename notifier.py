@@ -4,40 +4,43 @@ import sys
 import feedparser
 import smtplib
 from email.message import EmailMessage
+import logging
+from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent
 
 class FeedError(Exception):
     pass
 
 def load_state():
     try:
-        with open('state.json', 'r') as f:
+        with open(BASE_DIR / 'state.json', 'r') as f:
             return json.load(f)
     except FileNotFoundError:
         # Normal on first run; start with empty state
         return dict()
     except json.JSONDecodeError:
         # Abnormal; fail loudly rather than silently resetting
-        print("state.json is corrupt or empty. Delete it to start fresh.")
+        logging.error("state.json is corrupt or empty. Delete it to start fresh.")
         sys.exit(1)
 
 def load_config():
     try:
-        with open('config.toml', 'rb') as f:
+        with open(BASE_DIR / 'config.toml', 'rb') as f:
             return tomllib.load(f)
     except FileNotFoundError:
-        print("Error opening config file: file not found.")
+        logging.error("Error opening config file: file not found.")
         sys.exit(1)
 
 def load_secrets():
     try:
-        with open('secrets.toml', 'rb') as f:
+        with open(BASE_DIR / 'secrets.toml', 'rb') as f:
             return tomllib.load(f)
     except FileNotFoundError:
-        print("Error opening secrets file: file not found.")
+        logging.error("Error opening secrets file: file not found.")
         sys.exit(1)
 
 def save_state(state):
-    with open('state.json', 'w') as f:
+    with open(BASE_DIR / 'state.json', 'w') as f:
         json.dump(state, f, indent=2)
         f.write("\n")
 
@@ -76,7 +79,17 @@ def send_email(subject, body, config, password):
         s.login(username, password)
         s.send_message(msg)
 
-if __name__ == "__main__":
+    logging.info(f"Email sent to {to_address} from {from_address}")
+
+def main():
+    logging.basicConfig(
+        filename=BASE_DIR / "rss_notifier.log",
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s"
+    )
+
+    logging.info("Started")
+
     state = load_state()
     config = load_config()
     password = load_secrets()["smtp_password"]
@@ -88,10 +101,12 @@ if __name__ == "__main__":
         try:
             channel_name, current_video_ids = fetch_feed(feed_url)
         except FeedError as e:
-            print(e)
+            logging.warning(e)
             continue
 
         label = feed_config.get("label") or channel_name
+
+        logging.info(f"Fetched {len(current_video_ids)} from {label}")
 
         new_video_ids = set()
         if feed_url in state:
@@ -123,9 +138,18 @@ if __name__ == "__main__":
         else:
             subject = f"{new_count} new feed entry"
 
+        logging.info(subject)
+
         send_email(subject, body, config, password)
+    else:
+        logging.info("No new feed entries.")
 
     # Save state after sending email
     # so state gets discarded if email
     # fails
     save_state(state)
+
+    logging.info("Finished")
+
+if __name__ == "__main__":
+    main()
