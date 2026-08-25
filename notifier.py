@@ -5,6 +5,9 @@ import feedparser
 import smtplib
 from email.message import EmailMessage
 
+class FeedError(Exception):
+    pass
+
 def load_state():
     try:
         with open('state.json', 'r') as f:
@@ -39,7 +42,14 @@ def save_state(state):
         f.write("\n")
 
 def fetch_feed(feed_url):
-    feed = feedparser.parse(feed_url)
+    try:
+        feed = feedparser.parse(feed_url)
+    except Exception as e:
+        raise FeedError(f"Failed to fetch {feed_url}: {e}") from e
+
+    if feed.bozo:
+        raise FeedError(f"Failed to parse {feed_url}: {feed.bozo_exception}")
+
     channel_name = feed.feed.title
     entries_by_id = dict()
     for entry in feed.entries:
@@ -75,7 +85,12 @@ if __name__ == "__main__":
     # Get new feed entries
     for feed_config in config["feeds"]:
         feed_url = feed_config["url"]
-        channel_name, current_video_ids = fetch_feed(feed_url)
+        try:
+            channel_name, current_video_ids = fetch_feed(feed_url)
+        except FeedError as e:
+            print(e)
+            continue
+
         label = feed_config.get("label") or channel_name
 
         new_video_ids = set()
@@ -89,8 +104,6 @@ if __name__ == "__main__":
             all_new[feed_url] = {"label": label, "videos": channel_new}
 
         state[feed_url] = list(current_video_ids)
-
-    save_state(state)
 
     if all_new:
         lines = []
@@ -111,3 +124,8 @@ if __name__ == "__main__":
             subject = f"{new_count} new feed entry"
 
         send_email(subject, body, config, password)
+
+    # Save state after sending email
+    # so state gets discarded if email
+    # fails
+    save_state(state)
