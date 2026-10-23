@@ -179,3 +179,9 @@ state.json
 config.toml
 secrets.toml
 cron.log
+
+# Virtual environment created in the project root
+/bin/
+/include/
+/pyvenv.cfg
+/lib64
