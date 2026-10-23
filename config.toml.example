@@ -1,0 +1,14 @@
+[[feeds]]
+url = "https://www.youtube.com/feeds/videos.xml?channel_id=UCwHwDuNd9lCdA7chyyquDXw"
+label = "Bread on Penguins"
+
+[[feeds]]
+url = "https://www.youtube.com/feeds/videos.xml?channel_id=UCG2JqxPd0Yd_XPK9shr-J_w"
+label = "Dax Flame"
+
+[email]
+smtp_host = "smtp.example.com"
+smtp_port = 465
+smtp_username = "user@example.com"
+from_address = "user@example.com"
+to_address = "user@example.com"
