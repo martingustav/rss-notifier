@@ -6,6 +6,8 @@ import smtplib
 from email.message import EmailMessage
 import logging
 from pathlib import Path
+from xml.sax import SAXParseException
+import requests
 BASE_DIR = Path(__file__).resolve().parent
 
 class FeedError(Exception):
@@ -46,21 +48,23 @@ def save_state(state):
 
 def fetch_feed(feed_url):
     try:
-        feed = feedparser.parse(feed_url)
+        response = requests.get(feed_url, timeout=15)
+        response.raise_for_status()
+        feed = feedparser.parse(response.content)
+
     except Exception as e:
         raise FeedError(f"Failed to fetch {feed_url}: {e}") from e
 
     if feed.bozo:
         raise FeedError(f"Failed to parse {feed_url}: {feed.bozo_exception}")
 
-    channel_name = feed.feed.title
-    entries_by_id = dict()
+    feed_title = feed.feed.title
+    entries_by_link = dict()
     for entry in feed.entries:
-        video_id = entry["yt_videoid"]
-        video_title = entry["title"]
+        title = entry["title"]
         link = entry["link"]
-        entries_by_id[video_id] = {"title": video_title, "link": link}
-    return channel_name, entries_by_id
+        entries_by_link[link] = {"title": title}
+    return feed_title, entries_by_link
 
 def send_email(subject, body, config, password):
     host = config["email"]["smtp_host"]
@@ -99,35 +103,35 @@ def main():
     for feed_config in config["feeds"]:
         feed_url = feed_config["url"]
         try:
-            channel_name, current_video_ids = fetch_feed(feed_url)
+            feed_title, current_entries = fetch_feed(feed_url)
         except FeedError as e:
             logging.warning(e)
             continue
 
-        label = feed_config.get("label") or channel_name
+        label = feed_config.get("label") or feed_title
 
-        logging.info(f"Fetched {len(current_video_ids)} from {label}")
+        logging.info(f"Fetched {len(current_entries)} from {label}")
 
-        new_video_ids = set()
+        new_entries = set()
         if feed_url in state:
-            new_video_ids = set(current_video_ids.keys()).difference(set(state[feed_url]))
+            new_entries = set(current_entries.keys()).difference(set(state[feed_url]))
 
-        if new_video_ids:
-            channel_new = dict()
-            for video_id in new_video_ids:
-                channel_new[video_id] = current_video_ids[video_id]
-            all_new[feed_url] = {"label": label, "videos": channel_new}
+        if new_entries:
+            feed_new = dict()
+            for link in new_entries:
+                feed_new[link] = current_entries[link]
+            all_new[feed_url] = {"label": label, "entries": feed_new}
 
-        state[feed_url] = list(current_video_ids)
+        state[feed_url] = list(current_entries)
 
     if all_new:
         lines = []
         new_count = 0
         for feed_url, feed_data in all_new.items():
             lines.append(feed_data["label"])
-            for video_id, video in feed_data["videos"].items():
-                lines.append(f"  {video['title']}")
-                lines.append(f"  {video['link']}")
+            for link, entry in feed_data["entries"].items():
+                lines.append(f"  {entry['title']}")
+                lines.append(f"  {link}")
                 lines.append("")
                 new_count += 1
         body = "\n".join(lines)
