@@ -1,6 +1,6 @@
 This is a simple Python program that fetches entries from RSS feeds
 and sends emails with new entries. It is meant to run unattended via
-e.g. a cronjob.\
+e.g. a cronjob.
 
 Clone this repository and install Python if you don't have it, then
 follow the configuration steps below to get started.
@@ -43,11 +43,11 @@ Example files are provided for both.
 ## 3. Add your RSS feeds
 
 Then, add the feed(s) you want to follow in `config.toml`. An example
-file is provided at [config.toml.example](config.toml.example).\
+file is provided at [config.toml.example](config.toml.example).
 
 To get the correct URL for a YouTube channel's XML feed, you can use
 [this
-website](https://channelsurfer.tv/tools/youtube-rss-feed/).\
+website](https://channelsurfer.tv/tools/youtube-rss-feed/).
 
 Alternatively, use the below manual steps:
 
